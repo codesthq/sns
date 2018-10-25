@@ -35,7 +35,7 @@ object SubscribeActor {
 class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
 
   import me.snov.sns.actor.SubscribeActor._
-  
+
   type TopicArn = String
   type SubscriptionArn = String
 
@@ -59,7 +59,7 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
       } else {
         throw new TopicNotFoundException(s"Topic not found: $topicArn")
       }
-      
+
       Success
     } catch {
       case e: Throwable => Failure(e)
@@ -83,7 +83,7 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
     subscriptions += (subscription.topicArn -> updatedSubs)
 
    val producer = producerFor(subscription)
-    
+
     //update the producer
     actorPool += (subscription.arn -> producer)
   }
@@ -112,12 +112,14 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
   }
 
   def subscribe(topicArn: TopicArn, protocol: String, endpoint: String): Subscription = {
-    val subscription = Subscription(s"${topicArn}:${UUID.randomUUID}", "", topicArn, protocol, endpoint)
-    initSubscription(subscription)
-    
-    save()
-
-    subscription
+    subscriptions.values.flatten.find { (s: Subscription) => s.topicArn == topicArn && s.endpoint == endpoint } match {
+      case Some(subscription) => subscription
+      case None =>
+        val subscription = Subscription(s"${topicArn}:${UUID.randomUUID}", "", topicArn, protocol, endpoint)
+        initSubscription(subscription)
+        save()
+        subscription
+    }
   }
 
   def initSubscription(subscription: Subscription) = {
@@ -143,7 +145,7 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
   def listSubscriptions(): List[Subscription] = {
     subscriptions.values.flatten.toList
   }
-  
+
   def findOrCreateTopic(name: String): Topic = {
     topics.values.find(_.name == name) match {
       case Some(topic) => topic
@@ -160,7 +162,7 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
   def delete(arn: TopicArn) = {
     if (topics.isDefinedAt(arn)) {
       topics -= arn
-      
+
       if (subscriptions.isDefinedAt(arn)) {
         subscriptions -= arn
       }
@@ -179,7 +181,7 @@ class SubscribeActor(dbActor: ActorRef) extends Actor with ActorLogging {
     configuration.subscriptions.foreach { initSubscription }
     log.info("Loaded configuration")
   }
-  
+
   def save() = {
     dbActor ! new Configuration(subscriptions = listSubscriptions(), topics = topics.values.toList)
   }
